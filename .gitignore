@@ -1,4 +1,5 @@
 # Logs
+
 logs
 *.log
 npm-debug.log*
@@ -7,12 +8,79 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
+# Node
+
 node_modules
 dist
 dist-ssr
 *.local
 
+# Environment
+
+.env
+.env.*
+!.env.example
+
+# Python
+
+**pycache**/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+
+.venv/
+venv/
+env/
+ENV/
+
+# Python packaging
+
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+pip-wheel-metadata/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Testing / coverage
+
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
+.tox/
+.nox/
+.cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+.hypothesis/
+
+# Type checkers / linters
+
+.mypy_cache/
+.pyre/
+.ruff_cache/
+
+# Jupyter
+
+.ipynb_checkpoints/
+
 # Editor directories and files
+
 .vscode/*
 !.vscode/extensions.json
 .idea

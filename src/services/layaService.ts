@@ -36,9 +36,9 @@ interface PrefetchedDecision {
 }
 
 export class LayaAgentService {
-  private primaryUrl = '/laya-api';
-  private directUrl = 'http://127.0.0.1:8000';
-  private activeBaseUrl: string = '/laya-api';
+  private primaryUrl = import.meta.env.VITE_LAYA_PROXY_PATH || '/laya-api';
+  private directUrl = import.meta.env.VITE_LAYA_API_URL || 'http://127.0.0.1:8000';
+  private activeBaseUrl: string = import.meta.env.VITE_LAYA_PROXY_PATH || '/laya-api';
 
   private isAutoPlaying = false;
   private isThinking = false;
@@ -144,7 +144,7 @@ export class LayaAgentService {
     }
 
     this.health = null;
-    this.lastError = 'Could not connect to Laya server at http://127.0.0.1:8000';
+    this.lastError = `Could not connect to Laya server at ${this.directUrl}`;
     this.notify();
     return null;
   }

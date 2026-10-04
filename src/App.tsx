@@ -292,7 +292,7 @@ export const App: React.FC = () => {
             disabled={
               isWon ||
               !selectedCell ||
-              Boolean(puzzle && puzzle[selectedCell.row][selectedCell.col] !== 0)
+              Boolean(puzzle && puzzle[selectedCell.row]?.[selectedCell.col] !== 0)
             }
           />
         </main>

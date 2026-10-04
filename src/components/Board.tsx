@@ -71,7 +71,7 @@ export const Board: React.FC<BoardProps> = ({
 
   const selectedValue =
     selectedCell && board[selectedCell.row]
-      ? board[selectedCell.row][selectedCell.col]
+      ? (board[selectedCell.row]?.[selectedCell.col] ?? 0)
       : 0;
 
   const selectedBoxR = selectedCell
