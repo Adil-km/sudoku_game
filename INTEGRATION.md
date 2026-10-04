@@ -245,3 +245,9 @@ The game integrates directly with the **Laya Local Decision API** server running
    - The moment Move $N$'s decision is received, the request for Move $N+1$ is dispatched to Laya in parallel while Move $N$ is being written, highlighted, and rendered on the board.
    - This hides server inference latency behind DOM updates and eliminates dead time between consecutive moves.
 
+5. **Response Tracking & User Mistake Correction**:
+   - The agent maintains an internal record of all cells placed by Laya (`layaPlacedCells`).
+   - This allows Laya to distinguish immutable puzzle clues (`initialBoard`) and Laya-verified placements from user-filled entries.
+   - When evaluating moves, Laya checks empty cells AND any user-filled cells that are invalid or make the puzzle unsolvable, prioritizing correcting user errors with the verified correct digit.
+
+

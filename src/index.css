@@ -376,6 +376,37 @@ button {
   z-index: 2;
 }
 
+/* Wrong Column Red Accent Highlight */
+.sudoku-cell.wrong-column {
+  background-color: #fef2f2 !important;
+}
+
+.sudoku-cell.wrong-column.related {
+  background-color: #fee2e2 !important;
+}
+
+.sudoku-cell.wrong-column.same-value {
+  background-color: #fecaca !important;
+}
+
+.sudoku-cell.wrong-column.selected {
+  background-color: #fee2e2 !important;
+  box-shadow: inset 0 0 0 2.5px #ef4444 !important;
+  z-index: 2;
+}
+
+/* Conflicting or erroneous number in the wrong column */
+.sudoku-cell.wrong-cell {
+  background-color: #fecaca !important;
+  color: #dc2626 !important;
+  font-weight: 700 !important;
+}
+
+.sudoku-cell.wrong-cell.player-entry {
+  color: #b91c1c !important;
+}
+
+
 /* Given vs Player Numbers */
 .sudoku-cell.given {
   font-weight: 700;
@@ -649,19 +680,22 @@ button {
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  width: 100%;
 }
 
 .laya-btn {
+  width: 100%;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 0.35rem;
-  padding: 0.5rem 0.85rem;
+  gap: 0.4rem;
+  padding: 0.6rem 1rem;
   border-radius: var(--radius-sm);
-  font-size: 0.85rem;
+  font-size: 0.9rem;
   font-weight: 600;
   transition: all 0.15s ease;
 }
+
 
 .laya-btn .btn-icon {
   font-size: 0.9rem;
@@ -928,12 +962,13 @@ button {
   box-shadow: 0 2px 4px rgba(37, 99, 235, 0.25);
 }
 
-/* Metrics Grid */
+/* Metrics Grid (2 Columns: Confidence and Server Latency) */
 .decision-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 0.5rem;
 }
+
 
 .metric-box {
   background-color: #ffffff;

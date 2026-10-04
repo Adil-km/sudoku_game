@@ -9,7 +9,7 @@ import type {
 } from '../types';
 import { GRID_CONFIGS } from '../sudoku/config';
 import { cloneBoard, solveSudoku } from '../sudoku/generator';
-import { getValidCandidates, isBoardSolved } from '../sudoku/validator';
+import { getValidCandidates, isBoardSolved, isValidPlacement } from '../sudoku/validator';
 
 interface PredictResponse {
   result: {
@@ -49,6 +49,9 @@ export class LayaAgentService {
   private movesCount = 0;
   private lastError: string | null = null;
 
+  // Stored record of cells filled by Laya: coordinate "r-c" -> placed value
+  private layaPlacedCells: Map<string, number> = new Map();
+
   // In-flight parallel prefetch promise for the upcoming move
   private prefetchPromise: Promise<PrefetchedDecision | null> | null = null;
 
@@ -56,7 +59,6 @@ export class LayaAgentService {
 
   constructor() {
     this.checkHealth().then(() => {
-      // Prefetch first move in parallel once connected
       setTimeout(() => this.prefetchForCurrentBoard(), 50);
     });
   }
@@ -113,6 +115,7 @@ export class LayaAgentService {
     this.movesCount = 0;
     this.lastDecision = null;
     this.prefetchPromise = null;
+    this.layaPlacedCells.clear();
     this.notify();
   }
 
@@ -136,7 +139,7 @@ export class LayaAgentService {
           return data;
         }
       } catch {
-        // Try fallback
+        // Fallback endpoint
       }
     }
 
@@ -174,47 +177,89 @@ export class LayaAgentService {
 
   /**
    * Computes the decision for a given board state via Laya's API.
-   * Can be executed in parallel ahead of time (prefetching).
+   * Tracks Laya-placed cells to distinguish them from user-placed numbers,
+   * checking empty cells AND correcting wrong user-filled entries.
    */
   private async computeLayaDecisionForBoard(
     board: number[][],
+    initialBoard: number[][],
     gridSize: GridSize
   ): Promise<PrefetchedDecision | null> {
     const config = GRID_CONFIGS[gridSize];
 
-    interface CandidateCell {
-      row: number;
-      col: number;
-      candidates: number[];
-    }
-
-    const emptyCells: CandidateCell[] = [];
+    // 1. Separate cells into Laya-verified vs user-filled to detect wrong user entries
+    const cleanBoard = cloneBoard(board);
+    const wrongUserCells: { row: number; col: number; wrongVal: number }[] = [];
 
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
-        if (board[r][c] === 0) {
-          const cands = getValidCandidates(board, r, c, config);
-          if (cands.length > 0) {
-            emptyCells.push({ row: r, col: c, candidates: cands });
+        // Check cells that are non-zero and not initial clues
+        if (initialBoard[r][c] === 0 && board[r][c] !== 0) {
+          const wasPlacedByLaya = this.layaPlacedCells.get(`${r}-${c}`) === board[r][c];
+          if (!wasPlacedByLaya) {
+            // User filled this cell! Check if it is legal and solvable
+            const temp = cloneBoard(cleanBoard);
+            temp[r][c] = 0;
+            const isLegal = isValidPlacement(temp, r, c, board[r][c], config);
+            const isSolvable = isLegal && solveSudoku(cloneBoard(cleanBoard), config);
+
+            if (!isSolvable) {
+              wrongUserCells.push({ row: r, col: c, wrongVal: board[r][c] });
+              cleanBoard[r][c] = 0; // Clear on clean working board so other cells can evaluate valid candidates!
+            }
           }
         }
       }
     }
 
-    if (emptyCells.length === 0) {
+    // 2. Collect candidate cells (both empty cells and wrong user cells that need correction)
+    interface TargetCell {
+      row: number;
+      col: number;
+      candidates: number[];
+      isUserCorrection: boolean;
+      previousWrongValue?: number;
+    }
+
+    const candidateCells: TargetCell[] = [];
+
+    for (let r = 0; r < gridSize; r++) {
+      for (let c = 0; c < gridSize; c++) {
+        if (cleanBoard[r][c] === 0) {
+          const cands = getValidCandidates(cleanBoard, r, c, config);
+          if (cands.length > 0) {
+            const wrongCellInfo = wrongUserCells.find((wc) => wc.row === r && wc.col === c);
+            candidateCells.push({
+              row: r,
+              col: c,
+              candidates: cands,
+              isUserCorrection: Boolean(wrongCellInfo),
+              previousWrongValue: wrongCellInfo?.wrongVal,
+            });
+          }
+        }
+      }
+    }
+
+    if (candidateCells.length === 0) {
       return null;
     }
 
-    // Pick cell with Minimum Remaining Values (MRV)
-    emptyCells.sort((a, b) => a.candidates.length - b.candidates.length);
-    const target = emptyCells[0];
+    // Prioritize correcting wrong user entries first, then fewest candidates (MRV)
+    candidateCells.sort((a, b) => {
+      if (a.isUserCorrection && !b.isUserCorrection) return -1;
+      if (!a.isUserCorrection && b.isUserCorrection) return 1;
+      return a.candidates.length - b.candidates.length;
+    });
+
+    const target = candidateCells[0];
     const { row, col } = target;
 
-    // Filter candidates for this targeted cell to prevent invalid branches
+    // Filter candidates for target cell to ensure mathematical solvability
     let validCandidates = target.candidates;
     if (validCandidates.length > 1) {
       const solvable = validCandidates.filter((cand) => {
-        const testBoard = cloneBoard(board);
+        const testBoard = cloneBoard(cleanBoard);
         testBoard[row][col] = cand;
         return solveSudoku(testBoard, config);
       });
@@ -223,15 +268,15 @@ export class LayaAgentService {
       }
     }
 
-    const rowValues = board[row].filter((v) => v !== 0);
-    const colValues = board.map((r) => r[col]).filter((v) => v !== 0);
+    const rowValues = cleanBoard[row].filter((v) => v !== 0);
+    const colValues = cleanBoard.map((r) => r[col]).filter((v) => v !== 0);
 
     const boxRow = Math.floor(row / config.boxRows);
     const boxCol = Math.floor(col / config.boxCols);
     const boxIndex = boxRow * (config.size / config.boxCols) + boxCol + 1;
 
-    // Fast, token-efficient prompt
-    const stateDesc = `Sudoku R${row + 1}C${col + 1} (Box ${boxIndex}). Candidates: [${validCandidates.join(',')}]. Row filled: [${rowValues.join(',')}]. Col filled: [${colValues.join(',')}]. Remaining: ${emptyCells.length}.`;
+    // Fast, token-efficient prompt for Laya
+    const stateDesc = `Sudoku R${row + 1}C${col + 1} (Box ${boxIndex}). Candidates: [${validCandidates.join(',')}]. Row filled: [${rowValues.join(',')}]. Col filled: [${colValues.join(',')}]. Remaining: ${candidateCells.length}.${target.isUserCorrection ? ` (Correcting user entry: ${target.previousWrongValue})` : ''}`;
 
     const criteriaObj: Record<string, string> = {};
     validCandidates.forEach((cand) => {
@@ -268,8 +313,12 @@ export class LayaAgentService {
     const model = layaRes.result.model || 'laya-rl-agent';
     const confidence = ans?.confidence ?? ans?.answer_confidence ?? 1.0;
 
-    const nextBoard = cloneBoard(board);
+    const nextBoard = cloneBoard(cleanBoard);
     nextBoard[row][col] = chosenDigit;
+
+    const reasoning = target.isUserCorrection
+      ? `Corrected user entry (${target.previousWrongValue} ➔ ${chosenDigit}) at Row ${row + 1}, Col ${col + 1} with ${Math.round(confidence * 100)}% conf.`
+      : `Laya evaluated candidates [${validCandidates.join(', ')}] and chose ${chosenDigit} (${Math.round(confidence * 100)}% conf).`;
 
     const decision: LayaDecisionResult = {
       row,
@@ -285,7 +334,7 @@ export class LayaAgentService {
       colValues,
       moveIndex: this.movesCount + 1,
       timestamp: Date.now(),
-      reasoning: `Laya evaluated candidates [${validCandidates.join(', ')}] and chose ${chosenDigit} (${Math.round(confidence * 100)}% conf).`,
+      reasoning,
     };
 
     return {
@@ -306,13 +355,17 @@ export class LayaAgentService {
     if (snapshot.isWon) return;
 
     if (!this.prefetchPromise) {
-      this.prefetchPromise = this.computeLayaDecisionForBoard(snapshot.board, snapshot.gridSize);
+      this.prefetchPromise = this.computeLayaDecisionForBoard(
+        snapshot.board,
+        snapshot.initialBoard,
+        snapshot.gridSize
+      );
     }
   }
 
   /**
    * Evaluates the current board state and plays one single step via window.gameController using Laya.
-   * Leverages parallel prefetching: requests the next decision in parallel while writing/filling the current move!
+   * Tracks Laya responses so it only evaluates empty or user-filled wrong cells.
    */
   public async playStep(customController?: GameController): Promise<LayaDecisionResult | null> {
     const controller = customController || window.gameController;
@@ -333,19 +386,27 @@ export class LayaAgentService {
     this.notify();
 
     try {
-      // 1. Obtain current decision (either ready from parallel prefetch or computed now)
+      // 1. Obtain decision (from parallel prefetch or compute now)
       let prefetched: PrefetchedDecision | null = null;
 
       if (this.prefetchPromise) {
         prefetched = await this.prefetchPromise;
-        // Verify prefetched target is still valid on current board
-        if (prefetched && state.board[prefetched.targetRow][prefetched.targetCol] !== 0) {
-          prefetched = null;
+        // Invalidate prefetch if user manually changed the target cell in between
+        if (prefetched) {
+          const currentCellVal = state.board[prefetched.targetRow][prefetched.targetCol];
+          const wasLayaPlaced = this.layaPlacedCells.get(`${prefetched.targetRow}-${prefetched.targetCol}`) === currentCellVal;
+          if (currentCellVal !== 0 && wasLayaPlaced) {
+            prefetched = null;
+          }
         }
       }
 
       if (!prefetched) {
-        prefetched = await this.computeLayaDecisionForBoard(state.board, state.gridSize);
+        prefetched = await this.computeLayaDecisionForBoard(
+          state.board,
+          state.initialBoard,
+          state.gridSize
+        );
       }
 
       this.prefetchPromise = null;
@@ -358,13 +419,18 @@ export class LayaAgentService {
 
       const { decision, nextBoard } = prefetched;
 
-      // 2. PARALLEL TRIGGER: Request the NEXT state immediately in parallel while currently filling!
+      // 2. PARALLEL TRIGGER: Request the NEXT state immediately in parallel while writing/filling!
       const config = GRID_CONFIGS[state.gridSize];
       if (!isBoardSolved(nextBoard, config)) {
-        this.prefetchPromise = this.computeLayaDecisionForBoard(nextBoard, state.gridSize);
+        this.prefetchPromise = this.computeLayaDecisionForBoard(
+          nextBoard,
+          state.initialBoard,
+          state.gridSize
+        );
       }
 
-      // 3. Concurrently fill the current number into the board and update UI
+      // 3. Store Laya's response and apply move to the board
+      this.layaPlacedCells.set(`${decision.row}-${decision.col}`, decision.value);
       controller.selectCell(decision.row, decision.col);
       controller.setCell(decision.row, decision.col, decision.value);
 
@@ -409,7 +475,6 @@ export class LayaAgentService {
         break;
       }
 
-      // playStep consumes the parallel-fetched move and triggers the next one in parallel!
       const decision = await this.playStep(controller);
       if (!decision || !this.isAutoPlaying) {
         break;
@@ -426,8 +491,8 @@ export class LayaAgentService {
 
   public resetMoveHistory() {
     this.prefetchPromise = null;
+    this.layaPlacedCells.clear();
     this.clearHistory();
-    // Prefetch move 1 for the new puzzle in parallel immediately
     setTimeout(() => this.prefetchForCurrentBoard(), 50);
   }
 

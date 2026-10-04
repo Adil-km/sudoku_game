@@ -10,6 +10,8 @@ interface CellProps {
   isSameValue: boolean;
   isThickRight: boolean;
   isThickBottom: boolean;
+  isInWrongColumn?: boolean;
+  isWrongCell?: boolean;
   onSelect: (row: number, col: number) => void;
 }
 
@@ -23,10 +25,14 @@ export const Cell: React.FC<CellProps> = ({
   isSameValue,
   isThickRight,
   isThickBottom,
+  isInWrongColumn,
+  isWrongCell,
   onSelect,
 }) => {
   const classNames = [
     'sudoku-cell',
+    isInWrongColumn ? 'wrong-column' : '',
+    isWrongCell ? 'wrong-cell' : '',
     isSelected ? 'selected' : '',
     !isSelected && isSameValue && value !== 0 ? 'same-value' : '',
     !isSelected && !isSameValue && isRelated ? 'related' : '',
@@ -45,7 +51,7 @@ export const Cell: React.FC<CellProps> = ({
       data-row={row}
       data-col={col}
       data-value={value}
-      aria-label={`Cell row ${row + 1}, column ${col + 1}${value ? `, value ${value}` : ', empty'}${isGiven ? ', given' : ''}`}
+      aria-label={`Cell row ${row + 1}, column ${col + 1}${value ? `, value ${value}` : ', empty'}${isGiven ? ', given' : ''}${isInWrongColumn ? ', in wrong column' : ''}`}
     >
       {value !== 0 ? value : ''}
     </button>

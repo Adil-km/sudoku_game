@@ -43,21 +43,24 @@ export const App: React.FC = () => {
   const [gridSize, setGridSize] = useState<GridSize>(9);
   const [gameState, setGameState] = useState<GameStateData>(() => initGameForSize(9));
   const [timer, setTimer] = useState<number>(0);
+  const [isTimerRunning, setIsTimerRunning] = useState<boolean>(false);
   const [isWon, setIsWon] = useState<boolean>(false);
 
   const gameStateRef = useRef(gameState);
   const gridSizeRef = useRef(gridSize);
   const isWonRef = useRef(isWon);
   const timerRef = useRef(timer);
+  const isTimerRunningRef = useRef(isTimerRunning);
 
   useEffect(() => {
     gameStateRef.current = gameState;
     gridSizeRef.current = gridSize;
     isWonRef.current = isWon;
     timerRef.current = timer;
-  }, [gameState, gridSize, isWon, timer]);
+    isTimerRunningRef.current = isTimerRunning;
+  }, [gameState, gridSize, isWon, timer, isTimerRunning]);
 
-  const { puzzle, board, selectedCell } = gameState;
+  const { puzzle, board, solution, selectedCell } = gameState;
 
   // Start new game
   const startNewGame = useCallback((size: GridSize) => {
@@ -66,19 +69,20 @@ export const App: React.FC = () => {
     setGridSize(size);
     setGameState(initGameForSize(size));
     setTimer(0);
+    setIsTimerRunning(false);
     setIsWon(false);
   }, []);
 
-  // Timer counter
+  // Timer counter: only runs once the first cell update occurs
   useEffect(() => {
-    if (isWon) return;
+    if (!isTimerRunning || isWon) return;
 
     const interval = setInterval(() => {
       setTimer((prev) => prev + 1);
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [isWon]);
+  }, [isTimerRunning, isWon]);
 
   // Set cell directly by row and column
   const handleSetCell = useCallback(
@@ -89,6 +93,11 @@ export const App: React.FC = () => {
       if (row < 0 || row >= size || col < 0 || col >= size) return false;
       if (current.puzzle[row][col] !== 0) return false;
       if (num < 1 || num > size) return false;
+
+      // Start timer on the first cell update
+      if (!isTimerRunningRef.current) {
+        setIsTimerRunning(true);
+      }
 
       const newBoard = cloneBoard(current.board);
       newBoard[row][col] = num;
@@ -128,6 +137,11 @@ export const App: React.FC = () => {
     if (current.puzzle[row][col] !== 0) return false;
 
     if (current.board[row][col] !== 0) {
+      // Start timer on the first cell update
+      if (!isTimerRunningRef.current) {
+        setIsTimerRunning(true);
+      }
+
       const newBoard = cloneBoard(current.board);
       newBoard[row][col] = 0;
       setGameState((prev) => ({
@@ -139,6 +153,7 @@ export const App: React.FC = () => {
     }
     return false;
   }, []);
+
 
   // Handle cell selection
   const handleSelectCell = useCallback((row: number, col: number) => {
@@ -263,10 +278,12 @@ export const App: React.FC = () => {
               gridSize={gridSize}
               board={board}
               initialBoard={puzzle}
+              solution={solution}
               selectedCell={selectedCell}
               onSelectCell={handleSelectCell}
             />
           </div>
+
 
           <Keypad
             gridSize={gridSize}
