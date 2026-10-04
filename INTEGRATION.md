@@ -239,3 +239,9 @@ The game integrates directly with the **Laya Local Decision API** server running
    - `window.layaAgent.getStatus()`: Returns current telemetry, model name, confidence, and latency.
    - `window.layaAgent.clearHistory()`: Resets decision history log.
    - `await window.layaAgent.checkHealth()`: Pings `/health` and returns CPU thread & readiness info.
+
+4. **Parallel Decision Pipelining**:
+   - Rather than waiting sequentially for each cell to fill before querying the next state, Laya predictions are pipelined.
+   - The moment Move $N$'s decision is received, the request for Move $N+1$ is dispatched to Laya in parallel while Move $N$ is being written, highlighted, and rendered on the board.
+   - This hides server inference latency behind DOM updates and eliminates dead time between consecutive moves.
+

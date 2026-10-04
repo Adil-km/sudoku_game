@@ -1,6 +1,7 @@
 import type {
   GameController,
   GameSnapshot,
+  GridSize,
   LayaDecisionResult,
   LayaHealth,
   LayaAgentStatus,
@@ -8,6 +9,7 @@ import type {
 } from '../types';
 import { GRID_CONFIGS } from '../sudoku/config';
 import { cloneBoard, solveSudoku } from '../sudoku/generator';
+import { getValidCandidates, isBoardSolved } from '../sudoku/validator';
 
 interface PredictResponse {
   result: {
@@ -26,6 +28,13 @@ interface PredictResponse {
   latency_ms: number;
 }
 
+interface PrefetchedDecision {
+  decision: LayaDecisionResult;
+  nextBoard: number[][];
+  targetRow: number;
+  targetCol: number;
+}
+
 export class LayaAgentService {
   private primaryUrl = '/laya-api';
   private directUrl = 'http://127.0.0.1:8000';
@@ -40,10 +49,16 @@ export class LayaAgentService {
   private movesCount = 0;
   private lastError: string | null = null;
 
+  // In-flight parallel prefetch promise for the upcoming move
+  private prefetchPromise: Promise<PrefetchedDecision | null> | null = null;
+
   private listeners: Set<(status: LayaAgentStatus) => void> = new Set();
 
   constructor() {
-    this.checkHealth();
+    this.checkHealth().then(() => {
+      // Prefetch first move in parallel once connected
+      setTimeout(() => this.prefetchForCurrentBoard(), 50);
+    });
   }
 
   public subscribe(listener: (status: LayaAgentStatus) => void): () => void {
@@ -97,6 +112,7 @@ export class LayaAgentService {
     this.decisionHistory = [];
     this.movesCount = 0;
     this.lastDecision = null;
+    this.prefetchPromise = null;
     this.notify();
   }
 
@@ -157,59 +173,15 @@ export class LayaAgentService {
   }
 
   /**
-   * Evaluates the current board state and plays one single step via window.gameController using Laya exclusively.
+   * Computes the decision for a given board state via Laya's API.
+   * Can be executed in parallel ahead of time (prefetching).
    */
-  public async playStep(customController?: GameController): Promise<LayaDecisionResult | null> {
-    const controller = customController || window.gameController;
-    if (!controller) {
-      this.lastError = 'gameController is not initialized';
-      this.notify();
-      return null;
-    }
-
-    const state: GameSnapshot = controller.getState();
-    if (state.isWon) {
-      this.stopAutoPlay();
-      return null;
-    }
-
-    this.isThinking = true;
-    this.lastError = null;
-    this.notify();
-
-    try {
-      const decision = await this.evaluateAndPlay(controller, state);
-      this.lastDecision = decision;
-      this.movesCount++;
-      this.decisionHistory = [decision, ...this.decisionHistory.slice(0, 29)];
-      this.isThinking = false;
-      this.notify();
-
-      const nextState = controller.getState();
-      if (nextState.isWon && this.isAutoPlaying) {
-        this.stopAutoPlay();
-      }
-
-      return decision;
-    } catch (err: unknown) {
-      this.isThinking = false;
-      this.lastError = err instanceof Error ? err.message : String(err);
-      if (this.isAutoPlaying) {
-        this.stopAutoPlay();
-      }
-      this.notify();
-      return null;
-    }
-  }
-
-  private async evaluateAndPlay(
-    controller: GameController,
-    snapshot: GameSnapshot
-  ): Promise<LayaDecisionResult> {
-    const { gridSize, board } = snapshot;
+  private async computeLayaDecisionForBoard(
+    board: number[][],
+    gridSize: GridSize
+  ): Promise<PrefetchedDecision | null> {
     const config = GRID_CONFIGS[gridSize];
 
-    // High-speed empty cell collection using MRV constraint search
     interface CandidateCell {
       row: number;
       col: number;
@@ -221,7 +193,7 @@ export class LayaAgentService {
     for (let r = 0; r < gridSize; r++) {
       for (let c = 0; c < gridSize; c++) {
         if (board[r][c] === 0) {
-          const cands = controller.getValidCandidates(r, c);
+          const cands = getValidCandidates(board, r, c, config);
           if (cands.length > 0) {
             emptyCells.push({ row: r, col: c, candidates: cands });
           }
@@ -230,15 +202,15 @@ export class LayaAgentService {
     }
 
     if (emptyCells.length === 0) {
-      throw new Error('No valid moves available on the current board.');
+      return null;
     }
 
-    // Pick the most constrained cell (Minimum Remaining Values - MRV)
+    // Pick cell with Minimum Remaining Values (MRV)
     emptyCells.sort((a, b) => a.candidates.length - b.candidates.length);
     const target = emptyCells[0];
     const { row, col } = target;
 
-    // Filter candidates ONLY for this single target cell (0.05ms) so Laya never enters an invalid branch
+    // Filter candidates for this targeted cell to prevent invalid branches
     let validCandidates = target.candidates;
     if (validCandidates.length > 1) {
       const solvable = validCandidates.filter((cand) => {
@@ -251,9 +223,6 @@ export class LayaAgentService {
       }
     }
 
-    // Highlight target cell in the board UI
-    controller.selectCell(row, col);
-
     const rowValues = board[row].filter((v) => v !== 0);
     const colValues = board.map((r) => r[col]).filter((v) => v !== 0);
 
@@ -261,8 +230,7 @@ export class LayaAgentService {
     const boxCol = Math.floor(col / config.boxCols);
     const boxIndex = boxRow * (config.size / config.boxCols) + boxCol + 1;
 
-    // Concise, token-efficient prompt for Laya
-    // Dramatically speeds up PyTorch transformer inference latency on CPU
+    // Fast, token-efficient prompt
     const stateDesc = `Sudoku R${row + 1}C${col + 1} (Box ${boxIndex}). Candidates: [${validCandidates.join(',')}]. Row filled: [${rowValues.join(',')}]. Col filled: [${colValues.join(',')}]. Remaining: ${emptyCells.length}.`;
 
     const criteriaObj: Record<string, string> = {};
@@ -300,10 +268,10 @@ export class LayaAgentService {
     const model = layaRes.result.model || 'laya-rl-agent';
     const confidence = ans?.confidence ?? ans?.answer_confidence ?? 1.0;
 
-    // Apply move directly via gameController
-    controller.setCell(row, col, chosenDigit);
+    const nextBoard = cloneBoard(board);
+    nextBoard[row][col] = chosenDigit;
 
-    return {
+    const decision: LayaDecisionResult = {
       row,
       col,
       value: chosenDigit,
@@ -319,10 +287,112 @@ export class LayaAgentService {
       timestamp: Date.now(),
       reasoning: `Laya evaluated candidates [${validCandidates.join(', ')}] and chose ${chosenDigit} (${Math.round(confidence * 100)}% conf).`,
     };
+
+    return {
+      decision,
+      nextBoard,
+      targetRow: row,
+      targetCol: col,
+    };
   }
 
   /**
-   * Starts autonomous play loop using Laya with 0 programmed delay.
+   * Prefetches decision for current game board in background.
+   */
+  public prefetchForCurrentBoard() {
+    const controller = window.gameController;
+    if (!controller) return;
+    const snapshot = controller.getState();
+    if (snapshot.isWon) return;
+
+    if (!this.prefetchPromise) {
+      this.prefetchPromise = this.computeLayaDecisionForBoard(snapshot.board, snapshot.gridSize);
+    }
+  }
+
+  /**
+   * Evaluates the current board state and plays one single step via window.gameController using Laya.
+   * Leverages parallel prefetching: requests the next decision in parallel while writing/filling the current move!
+   */
+  public async playStep(customController?: GameController): Promise<LayaDecisionResult | null> {
+    const controller = customController || window.gameController;
+    if (!controller) {
+      this.lastError = 'gameController is not initialized';
+      this.notify();
+      return null;
+    }
+
+    const state: GameSnapshot = controller.getState();
+    if (state.isWon) {
+      this.stopAutoPlay();
+      return null;
+    }
+
+    this.isThinking = true;
+    this.lastError = null;
+    this.notify();
+
+    try {
+      // 1. Obtain current decision (either ready from parallel prefetch or computed now)
+      let prefetched: PrefetchedDecision | null = null;
+
+      if (this.prefetchPromise) {
+        prefetched = await this.prefetchPromise;
+        // Verify prefetched target is still valid on current board
+        if (prefetched && state.board[prefetched.targetRow][prefetched.targetCol] !== 0) {
+          prefetched = null;
+        }
+      }
+
+      if (!prefetched) {
+        prefetched = await this.computeLayaDecisionForBoard(state.board, state.gridSize);
+      }
+
+      this.prefetchPromise = null;
+
+      if (!prefetched) {
+        this.isThinking = false;
+        this.notify();
+        return null;
+      }
+
+      const { decision, nextBoard } = prefetched;
+
+      // 2. PARALLEL TRIGGER: Request the NEXT state immediately in parallel while currently filling!
+      const config = GRID_CONFIGS[state.gridSize];
+      if (!isBoardSolved(nextBoard, config)) {
+        this.prefetchPromise = this.computeLayaDecisionForBoard(nextBoard, state.gridSize);
+      }
+
+      // 3. Concurrently fill the current number into the board and update UI
+      controller.selectCell(decision.row, decision.col);
+      controller.setCell(decision.row, decision.col, decision.value);
+
+      this.lastDecision = decision;
+      this.movesCount++;
+      this.decisionHistory = [decision, ...this.decisionHistory.slice(0, 29)];
+      this.isThinking = false;
+      this.notify();
+
+      const nextState = controller.getState();
+      if (nextState.isWon && this.isAutoPlaying) {
+        this.stopAutoPlay();
+      }
+
+      return decision;
+    } catch (err: unknown) {
+      this.isThinking = false;
+      this.lastError = err instanceof Error ? err.message : String(err);
+      if (this.isAutoPlaying) {
+        this.stopAutoPlay();
+      }
+      this.notify();
+      return null;
+    }
+  }
+
+  /**
+   * Starts autonomous play loop using Laya with parallel pipelined execution.
    */
   public async startAutoPlay() {
     if (this.isAutoPlaying) return;
@@ -330,7 +400,6 @@ export class LayaAgentService {
     this.isAutoPlaying = true;
     this.notify();
 
-    // Loop without programmed delay
     while (this.isAutoPlaying) {
       const controller = window.gameController;
       if (!controller) break;
@@ -340,6 +409,7 @@ export class LayaAgentService {
         break;
       }
 
+      // playStep consumes the parallel-fetched move and triggers the next one in parallel!
       const decision = await this.playStep(controller);
       if (!decision || !this.isAutoPlaying) {
         break;
@@ -355,7 +425,10 @@ export class LayaAgentService {
   }
 
   public resetMoveHistory() {
+    this.prefetchPromise = null;
     this.clearHistory();
+    // Prefetch move 1 for the new puzzle in parallel immediately
+    setTimeout(() => this.prefetchForCurrentBoard(), 50);
   }
 
   public createController(): LayaAgentController {
