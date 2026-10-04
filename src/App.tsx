@@ -249,39 +249,44 @@ export const App: React.FC = () => {
 
   return (
     <div className="game-wrapper">
-      <main className="game-card">
-        <Header timer={timer} onNewGame={() => startNewGame(gridSize)} />
+      <div className="game-layout">
+        <main className="game-card">
+          <Header timer={timer} onNewGame={() => startNewGame(gridSize)} />
 
-        <Controls
-          gridSize={gridSize}
-          onChangeGridSize={handleChangeGridSize}
-        />
-
-        <div className="board-area">
-          <Board
+          <Controls
             gridSize={gridSize}
-            board={board}
-            initialBoard={puzzle}
-            selectedCell={selectedCell}
-            onSelectCell={handleSelectCell}
+            onChangeGridSize={handleChangeGridSize}
           />
-        </div>
 
-        <Keypad
-          gridSize={gridSize}
-          onInputNumber={handleInputNumber}
-          onClear={() => handleClearCell()}
-          disabled={
-            isWon ||
-            !selectedCell ||
-            Boolean(puzzle && puzzle[selectedCell.row][selectedCell.col] !== 0)
-          }
-        />
+          <div className="board-area">
+            <Board
+              gridSize={gridSize}
+              board={board}
+              initialBoard={puzzle}
+              selectedCell={selectedCell}
+              onSelectCell={handleSelectCell}
+            />
+          </div>
 
-        <LayaPanel isGameWon={isWon} />
-      </main>
+          <Keypad
+            gridSize={gridSize}
+            onInputNumber={handleInputNumber}
+            onClear={() => handleClearCell()}
+            disabled={
+              isWon ||
+              !selectedCell ||
+              Boolean(puzzle && puzzle[selectedCell.row][selectedCell.col] !== 0)
+            }
+          />
+        </main>
+
+        <aside className="laya-sidebar">
+          <LayaPanel isGameWon={isWon} />
+        </aside>
+      </div>
 
       {isWon && (
+
         <WinModal
           timeInSeconds={timer}
           gridSize={gridSize}

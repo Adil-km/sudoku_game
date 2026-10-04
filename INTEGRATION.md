@@ -233,8 +233,9 @@ The game integrates directly with the **Laya Local Decision API** server running
    In addition to the interactive UI panel, the Laya agent is exposed on `window`:
 
    - `await window.layaAgent.playStep()`: Evaluates the board with Laya and plays one step.
-   - `window.layaAgent.startAutoPlay(speedMs?: number)`: Begins autonomous solving loop.
+   - `window.layaAgent.startAutoPlay()`: Begins autonomous solving loop at maximum speed (0ms artificial delay).
    - `window.layaAgent.stopAutoPlay()`: Pauses or stops autonomous play.
    - `window.layaAgent.isAutoPlaying()`: Returns boolean status.
    - `window.layaAgent.getStatus()`: Returns current telemetry, model name, confidence, and latency.
+   - `window.layaAgent.clearHistory()`: Resets decision history log.
    - `await window.layaAgent.checkHealth()`: Pings `/health` and returns CPU thread & readiness info.

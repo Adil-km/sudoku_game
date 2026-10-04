@@ -60,6 +60,11 @@ export interface LayaDecisionResult {
   model: string;
   reasoning: string;
   isNakedSingle?: boolean;
+  boxIndex?: number;
+  rowValues?: number[];
+  colValues?: number[];
+  moveIndex?: number;
+  timestamp?: number;
 }
 
 export interface LayaAgentStatus {
@@ -68,16 +73,20 @@ export interface LayaAgentStatus {
   isAutoPlaying: boolean;
   health: LayaHealth | null;
   lastDecision: LayaDecisionResult | null;
+  decisionHistory: LayaDecisionResult[];
+  movesCount: number;
+  filledCount: number;
+  totalCells: number;
   error: string | null;
-  speed: number;
 }
 
 export interface LayaAgentController {
   checkHealth: () => Promise<LayaHealth | null>;
   playStep: () => Promise<LayaDecisionResult | null>;
-  startAutoPlay: (speedMs?: number) => void;
+  startAutoPlay: () => void;
   stopAutoPlay: () => void;
   isAutoPlaying: () => boolean;
+  clearHistory: () => void;
   getStatus: () => LayaAgentStatus;
   subscribe: (listener: (status: LayaAgentStatus) => void) => () => void;
 }
