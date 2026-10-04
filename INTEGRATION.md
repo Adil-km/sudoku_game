@@ -193,3 +193,48 @@ if (single) {
    - **6×6**: digits `1..6`, subgrid boxes are $2 \times 3$ (2 rows, 3 columns).
    - **9×9**: digits `1..9`, subgrid boxes are $3 \times 3$.
 5. **No Visual Intrusion**: UI components (`Board`, `Cell`, `Keypad`, `Header`) do not depend on external controller consumers and remain fully functional for manual human gameplay simultaneously.
+
+---
+
+## 6. Laya Local Decision API Integration (`http://127.0.0.1:8000`)
+
+The game integrates directly with the **Laya Local Decision API** server running on port `8000`.
+
+### Architectural Overview
+
+1. **Proxy Routing (`/laya-api`)**:
+   - The Vite development server proxies requests from `/laya-api/*` to `http://127.0.0.1:8000/*` to avoid browser cross-origin (CORS) preflight restrictions.
+   - If running headless outside the browser, client scripts can also connect directly to `http://127.0.0.1:8000`.
+
+2. **Laya Decision Model (`laya-rl-agent`)**:
+   - For each turn, empty cells are prioritized using Minimum Remaining Values (MRV).
+   - Valid candidate digits are computed with `getValidCandidates(r, c)`.
+   - When evaluating candidates, a typed `choice` question is dispatched to `POST /predict`:
+     ```json
+     {
+       "state": "Sudoku 9x9 grid. Row 2, Col 4. Candidates: [2, 5, 8]. Existing row digits: [1, 3, 4, 7, 9].",
+       "questions": {
+         "chosen_digit": {
+           "type": "choice",
+           "instructions": "Which valid candidate number should be placed into row 2, col 4?",
+           "criteria": {
+             "2": "Candidate 2",
+             "5": "Candidate 5",
+             "8": "Candidate 8"
+           }
+         }
+       }
+     }
+     ```
+   - Laya returns the selected `choice`, candidate `probabilities`, `confidence`, and `latency_ms`.
+   - The move is dispatched via `window.gameController.setCell(row, col, value)`.
+
+3. **Global Browser API (`window.layaAgent`)**:
+   In addition to the interactive UI panel, the Laya agent is exposed on `window`:
+
+   - `await window.layaAgent.playStep()`: Evaluates the board with Laya and plays one step.
+   - `window.layaAgent.startAutoPlay(speedMs?: number)`: Begins autonomous solving loop.
+   - `window.layaAgent.stopAutoPlay()`: Pauses or stops autonomous play.
+   - `window.layaAgent.isAutoPlaying()`: Returns boolean status.
+   - `window.layaAgent.getStatus()`: Returns current telemetry, model name, confidence, and latency.
+   - `await window.layaAgent.checkHealth()`: Pings `/health` and returns CPU thread & readiness info.

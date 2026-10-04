@@ -42,8 +42,50 @@ export interface GameController {
   getValidCandidates: (row: number, col: number) => number[];
 }
 
+export interface LayaHealth {
+  status: string;
+  device: string;
+  threads: number;
+  ready: boolean;
+}
+
+export interface LayaDecisionResult {
+  row: number;
+  col: number;
+  value: number;
+  candidates: number[];
+  confidence: number;
+  probabilities?: Record<string, number>;
+  latencyMs: number;
+  model: string;
+  reasoning: string;
+  isNakedSingle?: boolean;
+}
+
+export interface LayaAgentStatus {
+  isOnline: boolean;
+  isThinking: boolean;
+  isAutoPlaying: boolean;
+  health: LayaHealth | null;
+  lastDecision: LayaDecisionResult | null;
+  error: string | null;
+  speed: number;
+}
+
+export interface LayaAgentController {
+  checkHealth: () => Promise<LayaHealth | null>;
+  playStep: () => Promise<LayaDecisionResult | null>;
+  startAutoPlay: (speedMs?: number) => void;
+  stopAutoPlay: () => void;
+  isAutoPlaying: () => boolean;
+  getStatus: () => LayaAgentStatus;
+  subscribe: (listener: (status: LayaAgentStatus) => void) => () => void;
+}
+
 declare global {
   interface Window {
     gameController?: GameController;
+    layaAgent?: LayaAgentController;
   }
 }
+

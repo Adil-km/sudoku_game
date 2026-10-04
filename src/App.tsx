@@ -8,6 +8,8 @@ import { Controls } from './components/Controls';
 import { Board } from './components/Board';
 import { Keypad } from './components/Keypad';
 import { WinModal } from './components/WinModal';
+import { LayaPanel } from './components/LayaPanel';
+import { layaService } from './services/layaService';
 
 interface GameStateData {
   puzzle: number[][];
@@ -59,6 +61,8 @@ export const App: React.FC = () => {
 
   // Start new game
   const startNewGame = useCallback((size: GridSize) => {
+    layaService.stopAutoPlay();
+    layaService.resetMoveHistory();
     setGridSize(size);
     setGameState(initGameForSize(size));
     setTimer(0);
@@ -186,11 +190,13 @@ export const App: React.FC = () => {
     };
 
     window.gameController = controller;
+    window.layaAgent = layaService.createController();
 
     return () => {
       if (window.gameController === controller) {
         delete window.gameController;
       }
+      delete window.layaAgent;
     };
   }, [handleSelectCell, handleInputNumber, handleSetCell, handleClearCell, startNewGame]);
 
@@ -271,6 +277,8 @@ export const App: React.FC = () => {
             Boolean(puzzle && puzzle[selectedCell.row][selectedCell.col] !== 0)
           }
         />
+
+        <LayaPanel isGameWon={isWon} />
       </main>
 
       {isWon && (
