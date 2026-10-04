@@ -60,7 +60,7 @@ export const LayaPanel: React.FC<LayaPanelProps> = ({ isGameWon }) => {
             </svg>
           </div>
           <div>
-            <div className="laya-title">Laya Local Decision AI</div>
+            <div className="laya-title">Laya Decision AI</div>
           </div>
         </div>
       </div>
@@ -110,7 +110,7 @@ export const LayaPanel: React.FC<LayaPanelProps> = ({ isGameWon }) => {
               </>
             ) : (
               <>
-                <span className="btn-icon">▶</span> Auto-Play (Max Speed)
+                <span className="btn-icon">▶</span> Laya Auto-Play
               </>
             )}
           </button>
